@@ -119,6 +119,7 @@ func NewServer(members []string, domain string, dnsAddr string, httpAddr string,
 	s.router.HandleFunc("/skydns/services/{uuid}", s.getServiceHTTPHandler).Methods("GET")
 	s.router.HandleFunc("/skydns/services/{uuid}", s.removeServiceHTTPHandler).Methods("DELETE")
 	s.router.HandleFunc("/skydns/services/{uuid}", s.updateServiceHTTPHandler).Methods("PATCH")
+	// skydns/notify/
 
 	// External API Routes
 	// /skydns/services #list all services
@@ -337,7 +338,8 @@ func (s *Server) joinHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// Handler for DNS requests, responsible for parsing DNS request and returning response.
+// ServeDNS is the handler for DNS requests, responsible for parsing DNS request and 
+// returning a response.
 func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	requestCount.Inc(1)
 
@@ -508,19 +510,17 @@ func (s *Server) authenticate(secret string) (err error) {
 	return
 }
 
-// Handle API add service requests
+// addServiceHTTPHandler handles the API add service request.
 func (s *Server) addServiceHTTPHandler(w http.ResponseWriter, req *http.Request) {
+	var (
+		uuid string
+		ok   bool
+	)
 	addServiceCount.Inc(1)
 	vars := mux.Vars(req)
 
-	var uuid string
-	var ok bool
-	var secret string
-
-	//read the authorization header to get the secret.
-	secret = req.Header.Get("Authorization")
-
-	if err := s.authenticate(secret); err != nil {
+	// read the authorization header to get the secret.
+	if err := s.authenticate(req.Header.Get("Authorization")); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -531,7 +531,6 @@ func (s *Server) addServiceHTTPHandler(w http.ResponseWriter, req *http.Request)
 	}
 
 	var serv msg.Service
-
 	if err := json.NewDecoder(req.Body).Decode(&serv); err != nil {
 		log.Println("Error: ", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -539,6 +538,7 @@ func (s *Server) addServiceHTTPHandler(w http.ResponseWriter, req *http.Request)
 	}
 
 	serv.UUID = uuid
+	serv.Host = uuid + "." + s.domain
 
 	if _, err := s.raftServer.Do(NewAddServiceCommand(serv)); err != nil {
 		switch err {
@@ -550,10 +550,8 @@ func (s *Server) addServiceHTTPHandler(w http.ResponseWriter, req *http.Request)
 			log.Println("Error: ", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-
 		return
 	}
-
 	w.WriteHeader(http.StatusCreated)
 }
 

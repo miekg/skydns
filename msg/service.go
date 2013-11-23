@@ -7,13 +7,14 @@ import (
 type Service struct {
 	UUID        string
 	Name        string
-	Version     string
+	Address4    string
+	Address6    string
 	Environment string
 	Region      string
-	Host        string
 	Port        uint16
-	TTL         uint32 // Seconds
+	TTL         uint32 // seconds
 	Expires     time.Time
+	host        string // uuid.<skydns.local.>
 }
 
 // RemainingTTL returns the amount of time remaining before expiration.

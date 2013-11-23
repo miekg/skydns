@@ -3,7 +3,7 @@ Register a name with SkyDNS
 
 Changes from original README.md
 
-1.  Allow for (HTTP) callbacks when a name changes;
+1.  Allow for (HTTP) callbacks/notifies when a name changes;
 2.  Make the registration "simpler";
 3.  Do away with host names, and directly use IP addresses. Intermediate
     hostnames will be generated and will be resolved in the DNS reply
@@ -17,7 +17,7 @@ Each client generates a UUID which they use to update names, this is
 just to ensure that clients registering the same name (if they operate
 as a cluster) to be distinguished.
 
-Each name is setup like: <name>.<region>.<environment>.skydns.local.
+Each name is setup like: <name>.<environment>.<region>.skydns.local.
 Each registered names should be fully qualified.
 
 Names cannot contain dots. Each part of the name roughly means the
@@ -36,7 +36,7 @@ data, as follows:
 A few examples:
 
     // register testservice with UUID 1001 (East Region)
-    curl -X PUT -L http://localhost:8080/skydns/services/1001/testservice.east.production.skydns.local/ -d '{"Address":192.168.1.2,"Port":80,"TTL":4000}'
+    curl -X PUT -L http://localhost:8080/skydns/services/1001 -d '{"Name":"testservice","Region":"east","Environment":"production","Address":"192.168.1.2","Port":80,"TTL":4000}'
 
     // testservice with UUID 1002 (East Region)
     curl -X PUT -L http://localhost:8080/skydns/services/1002/testservice.east.production.skydns.local/ -d '{"Address":192.168.1.3,"Port":8080,"TTL":4000}'

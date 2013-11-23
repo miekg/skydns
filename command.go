@@ -13,7 +13,7 @@ type AddServiceCommand struct {
 	Service msg.Service
 }
 
-// Creates a new AddServiceCommand
+// NewAddServiceCommand returns a new AddServiceCommand.
 func NewAddServiceCommand(s msg.Service) *AddServiceCommand {
 	s.Expires = getExpirationTime(s.TTL)
 	return &AddServiceCommand{s}
