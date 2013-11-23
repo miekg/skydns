@@ -16,7 +16,6 @@ type AddServiceCommand struct {
 // Creates a new AddServiceCommand
 func NewAddServiceCommand(s msg.Service) *AddServiceCommand {
 	s.Expires = getExpirationTime(s.TTL)
-
 	return &AddServiceCommand{s}
 }
 
@@ -33,7 +32,6 @@ func (c *AddServiceCommand) Apply(server raft.Server) (interface{}, error) {
 	if err == nil {
 		log.Println("Added Service:", c.Service)
 	}
-
 	return c.Service, err
 }
 
@@ -61,7 +59,6 @@ func (c *UpdateTTLCommand) Apply(server raft.Server) (interface{}, error) {
 	if err == nil {
 		log.Println("Updated Service TTL:", c.UUID, c.TTL)
 	}
-
 	return c.UUID, err
 }
 
@@ -81,14 +78,11 @@ func (c *RemoveServiceCommand) CommandName() string {
 
 // Updates TTL in registry
 func (c *RemoveServiceCommand) Apply(server raft.Server) (interface{}, error) {
-
 	reg := server.Context().(registry.Registry)
 	err := reg.RemoveUUID(c.UUID)
-
 	if err == nil {
 		log.Println("Removed Service:", c.UUID)
 	}
-
 	return c.UUID, err
 }
 

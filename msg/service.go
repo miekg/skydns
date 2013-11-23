@@ -16,20 +16,17 @@ type Service struct {
 	Expires     time.Time
 }
 
-// Returns the amount of time remaining before expiration
+// RemainingTTL returns the amount of time remaining before expiration.
 func (s *Service) RemainingTTL() uint32 {
 	d := s.Expires.Sub(time.Now())
-
 	ttl := uint32(d.Seconds())
-
 	if ttl < 1 {
 		return 0
 	}
-
 	return ttl
 }
 
-// Updates TTL property to the RemainingTTL
+// UpdateTTL updates the TTL property to the RemainingTTL.
 func (s *Service) UpdateTTL() {
 	s.TTL = s.RemainingTTL()
 }

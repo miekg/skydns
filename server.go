@@ -32,12 +32,14 @@ import (
    TTL cleanup thread should shutdown/start based on being elected master
 */
 
-var expiredCount metrics.Counter
-var requestCount metrics.Counter
-var addServiceCount metrics.Counter
-var updateTTLCount metrics.Counter
-var getServiceCount metrics.Counter
-var removeServiceCount metrics.Counter
+var (
+	expiredCount       metrics.Counter
+	requestCount       metrics.Counter
+	addServiceCount    metrics.Counter
+	updateTTLCount     metrics.Counter
+	getServiceCount    metrics.Counter
+	removeServiceCount metrics.Counter
+)
 
 func init() {
 	// Register Raft Commands
@@ -62,7 +64,6 @@ func init() {
 
 	removeServiceCount = metrics.NewCounter()
 	metrics.Register("skydns-remove-service-requests", removeServiceCount)
-
 }
 
 type Server struct {
@@ -129,7 +130,6 @@ func NewServer(members []string, domain string, dnsAddr string, httpAddr string,
 
 	// Raft Routes
 	s.router.HandleFunc("/raft/join", s.joinHandler).Methods("POST")
-
 	return
 }
 
@@ -214,17 +214,16 @@ func (s *Server) Start() (*sync.WaitGroup, error) {
 
 	s.waiter.Add(1)
 	go s.run()
-
 	return s.waiter, nil
 }
 
-// Stops server
+// Stop stops the server.
 func (s *Server) Stop() {
 	log.Println("Stopping server")
 	s.waiter.Done()
 }
 
-// Returns the current leader
+// Leader returns the current leader.
 func (s *Server) Leader() string {
 	l := s.raftServer.Leader()
 
@@ -232,7 +231,6 @@ func (s *Server) Leader() string {
 		// We are a single node cluster, we are the leader
 		return s.raftServer.Name()
 	}
-
 	return l
 }
 
@@ -248,14 +246,12 @@ func (s *Server) Members() (members []string) {
 	for _, p := range peers {
 		members = append(members, strings.TrimPrefix(p.ConnectionString, "http://"))
 	}
-
 	return
 }
 
 func (s *Server) run() {
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
-
 	tick := time.Tick(1 * time.Second)
 
 run:
@@ -281,7 +277,7 @@ run:
 	s.Stop()
 }
 
-// Joins an existing skydns cluster
+// Join joins an existing skydns cluster.
 func (s *Server) Join(members []string) error {
 	command := &raft.DefaultJoinCommand{
 		Name:             s.raftServer.Name(),
@@ -341,25 +337,20 @@ func (s *Server) joinHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// Handler for DNS requests, responsible for parsing DNS request and returning response
+// Handler for DNS requests, responsible for parsing DNS request and returning response.
 func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	requestCount.Inc(1)
 
 	m := new(dns.Msg)
 	m.SetReply(req)
 	m.Answer = make([]dns.RR, 0, 10)
-
 	defer w.WriteMsg(m)
 
-	// happens in dns lib when using default mux \o/
-	//	if len(req.Question) < 1 {
-	//		return
-	//	}
 	q := req.Question[0]
-
 	log.Printf("Received DNS Request for %q from %q", q.Name, w.RemoteAddr())
 
-	if q.Qtype == dns.TypeANY || q.Qtype == dns.TypeSRV {
+	switch q.Qtype {
+	case dns.TypeSRV:
 		records, err := s.getSRVRecords(q)
 
 		if err != nil {
@@ -369,9 +360,7 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		}
 
 		m.Answer = append(m.Answer, records...)
-	}
-
-	if q.Qtype == dns.TypeANY || q.Qtype == dns.TypeA {
+	case dns.TypeA, dns.TypeAAAA:
 		records, err := s.getARecords(q)
 
 		if err != nil {
@@ -381,6 +370,9 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		}
 
 		m.Answer = append(m.Answer, records...)
+	case dns.TypeNS: // returns names of the SkyDNS servers
+		log.Printf("%v\n", s.Members())
+		log.Printf("%v\n", s.Leader())
 	}
 }
 
