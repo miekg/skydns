@@ -22,22 +22,41 @@ import (
 var compTestCases = []compTestCase{
 	{Name: "direct-dnskey",
 		Question: "skydns.local. DNSKEY",
-		Flags:    "RCODE:0,OPCODE:0,RD,QR,tc,AA,ad",
+		Flags:    "RCODE:0,OPCODE:0,QR,AA,tc,RD,RA,ad",
+		Reply:    []string{"0,skydns.local. DNSKEY 256 3 5 ...",
+			"0,skydns.local. RRSIG DNSKEY 5 2 60 ... ... 51945 skydns.local. ...",
+			"2,. OPT 32768"},
 	},
 }
 
 func TestCompliance(t *testing.T) {
-	s := newTestServerDNSSEC("", "", "")
+	s := newTestServerDNSSEC(t, "", "", "")
 	defer s.Stop()
 	c := new(dns.Client)
 	for _, tc := range compTestCases {
-		resp, _, err := c.Exchange(tc.request(), "localhost:"+StrPort)
+		m := tc.request()
+		m.SetEdns0(4096, true)
+		if tc.NoDNSSEC {
+			m.SetEdns0(4096, true)
+		}
+		r, _, err := c.Exchange(m, "localhost:"+StrPort)
 		if err != nil {
 			t.Fatal(err)
 		}
-		flags, _ := toReply(resp)
-		t.Log("name: " + tc.Name)
-		t.Log("flags: " + flags)
+		flags, msg := toReply(r)
+		// Thanks for all the boilerplate, this can be a simple string compare.
+		if tc.Flags != flags {
+			t.Fatalf("Flags for test %s, not correct, expecting: %s, got %s",
+				tc.Name, tc.Flags, flags)
+		}
+		for i:=0; i < len(msg); i++ {
+			// If this panic with index out of range, we clearly have problem, so don't check for that
+			if tc.Reply[i] != msg[i] {
+				t.Fatalf("RR for test %s, not correct, expecting: %s, got %s",
+					tc.Name, tc.Reply[i], msg[i])
+			}
+		}
+		t.Logf("PASS: %s\n", tc.Name)
 	}
 }
 
@@ -75,7 +94,23 @@ func toReply(m *dns.Msg) (string, []string) {
 	flag += toFlag("rd,", m.RecursionDesired)
 	flag += toFlag("ra,", m.RecursionAvailable)
 	flag += toFlag("ad", m.AuthenticatedData)
-	return flag, nil
+	section := "0"
+	var msg []string
+	for _, rr := range m.Answer {
+		msg = append(msg, section+","+rr.Header().Name+" "+dns.TypeToString[rr.Header().Rrtype]+" "+
+			toRdata(rr))
+	}
+	section = "1"
+	for _, rr := range m.Ns {
+		msg = append(msg, section+","+rr.Header().Name+" "+dns.TypeToString[rr.Header().Rrtype]+" "+
+			toRdata(rr))
+	}
+	section = "2"
+	for _, rr := range m.Extra {
+		msg = append(msg, section+","+rr.Header().Name+" "+dns.TypeToString[rr.Header().Rrtype]+" "+
+			toRdata(rr))
+	}
+	return flag, msg
 }
 
 func toFlag(s string, b bool) string {
@@ -85,13 +120,32 @@ func toFlag(s string, b bool) string {
 	return strings.ToLower(s)
 }
 
-func newTestServerDNSSEC(leader, secret, nameserver string) *Server {
+func toRdata(r dns.RR) string {
+	s := ""
+	switch t := r.(type) {
+	case *dns.DNSKEY:
+		s  += strconv.Itoa(int(t.Flags)) + " " + 
+			strconv.Itoa(int(t.Protocol)) + " " +
+			strconv.Itoa(int(t.Algorithm)) + " ..."
+	case *dns.RRSIG:
+		s += dns.TypeToString[t.TypeCovered] + " " +
+			strconv.Itoa(int(t.Algorithm)) + " " +
+			strconv.Itoa(int(t.Labels)) + " " +
+			strconv.Itoa(int(t.OrigTtl)) + " ... ... " +
+			strconv.Itoa(int(t.KeyTag)) + " " + t.SignerName + " ..."
+	case *dns.OPT:
+		s += strconv.Itoa(int(r.Header().Ttl))
+	}
+	return s
+}
+
+func newTestServerDNSSEC(t *testing.T, leader, secret, nameserver string) *Server {
 	s := newTestServer(leader, secret, nameserver)
 	key, _ := dns.NewRR("skydns.local. IN DNSKEY 256 3 5 AwEAAaXfO+DOBMJsQ5H4TfiabwSpqE4cGL0Qlvh5hrQumrjr9eNSdIOjIHJJKCe56qBU5mH+iBlXP29SVf6UiiMjIrAPDVhClLeWFe0PC+XlWseAyRgiLHdQ8r95+AfkhO5aZgnCwYf9FGGSaT0+CRYN+PyDbXBTLK5FN+j5b6bb7z+d")
 	s.dnsKey = key.(*dns.DNSKEY)
 	s.keyTag = s.dnsKey.KeyTag()
-	s.privKey, _ = s.dnsKey.ReadPrivateKey(strings.NewReader(`
-Private-key-format: v1.3
+	var err error
+	s.privKey, err = s.dnsKey.ReadPrivateKey(strings.NewReader(`Private-key-format: v1.3
 Algorithm: 5 (RSASHA1)
 Modulus: pd874M4EwmxDkfhN+JpvBKmoThwYvRCW+HmGtC6auOv141J0g6MgckkoJ7nqoFTmYf6IGVc/b1JV/pSKIyMisA8NWEKUt5YV7Q8L5eVax4DJGCIsd1Dyv3n4B+SE7lpmCcLBh/0UYZJpPT4JFg34/INtcFMsrkU36PlvptvvP50=
 PublicExponent: AQAB
@@ -104,5 +158,8 @@ Coefficient: mMFr4+rDY5V24HZU3Oa5NEb55iQ56ZNa182GnNhWqX7UqWjcUUGjnkCy40BqeFAQ7lp
 Created: 20140126132645
 Publish: 20140126132645
 Activate: 20140126132645`), "stdin")
+	if err != nil {
+		t.Fatalf("Failed to read private key: %s\n", err.Error())
+	}
 	return s
 }
